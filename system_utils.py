@@ -1,46 +1,43 @@
 # system_utils.py
-import psutil
 import platform
-import time
 import os
+import subprocess
 
-def get_size(bytes, suffix="B"):
-    """
-    Scale bytes to its proper format
-    e.g: 1253656 => '1.20MB'
-    """
-    factor = 1024
-    for unit in ["", "K", "M", "G", "T", "P"]:
-        if bytes < factor:
-            return f"{bytes:.2f}{unit}{suffix}"
-        bytes /= factor
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
 
 def get_system_report():
-    """
-    Generates a professional-grade system report for the Sudo Menu.
-    """
+    """Generates a report that won't crash on Termux."""
     uname = platform.uname()
-    cpufreq = psutil.cpu_freq()
-    svmem = psutil.virtual_memory()
     
+    # Basic Info (Works everywhere)
     report = (
-        "🏮 **KURAMA SYSTEM VITALS** 🏮\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        f"🖥️ **Node:** `{uname.node}`\n"
-        f"🛡️ **OS:** `{uname.system} {uname.release}`\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "🧠 **PROCESSOR (CHAKRA FLOW)**\n"
-        f"• **Physical cores:** {psutil.cpu_count(logical=False)}\n"
-        f"• **Total cores:** {psutil.cpu_count(logical=True)}\n"
-        f"• **Current Freq:** {cpufreq.current:.2f}Mhz\n"
-        f"• **CPU Load:** {psutil.cpu_percent()}% \n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "💧 **MEMORY (STAMINA)**\n"
-        f"• **Total:** {get_size(svmem.total)}\n"
-        f"• **Available:** {get_size(svmem.available)}\n"
-        f"• **Used:** {get_size(svmem.used)} ({svmem.percent}%)\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "⌛ **UPTIME:** " + time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - psutil.boot_time())) + "\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "🌌 <b>COSMIC VITALS</b> 🏮\n"
+        "━━━━━━━━━━━━━━\n"
+        f"🖥️ <b>OS:</b> {uname.system}\n"
+        f"🆔 <b>Node:</b> {uname.node}\n"
+        f"🏗️ <b>Arch:</b> {uname.machine}\n"
     )
+
+    if HAS_PSUTIL:
+        try:
+            cpu_usage = psutil.cpu_percent()
+            mem = psutil.virtual_memory()
+            report += (
+                f"🧠 <b>CPU:</b> {cpu_usage}%\n"
+                f"💾 <b>RAM:</b> {mem.percent}%\n"
+            )
+        except Exception:
+            report += "🧠 <b>CPU/RAM:</b> Access Restricted\n"
+    else:
+        # Termux Fallback: Use 'free' command if available
+        try:
+            report += "🧠 <b>CPU/RAM:</b> psutil missing (Termux restricted)\n"
+        except Exception:
+            pass
+
+    report += "━━━━━━━━━━━━━━"
     return report
