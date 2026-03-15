@@ -1,0 +1,5 @@
+# config.py
+TELEGRAM_TOKEN = ""
+ADMIN_CHAT_ID = "475193649"
+SUDO_USERS = []
+DOWNLOAD_DIR = "downloads"

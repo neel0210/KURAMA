@@ -1,0 +1,5 @@
+python-telegram-bot==21.10
+ollama==0.4.7
+yt-dlp==2025.01.26
+psutil==5.9.8
+qrcode[pil]
