@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.session
+*.session-journal
+image/cache/
+.venv/
+downloads
+test.sh
+kurama.sh
