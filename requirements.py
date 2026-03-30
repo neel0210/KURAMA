@@ -4,77 +4,74 @@ import os
 import urllib.request
 
 def is_termux():
-    # Detection for Termux environment
     return "com.termux" in sys.executable or "TERMUX_VERSION" in os.environ
 
 def is_venv():
-    # Detects if the script is running inside a virtual environment
+    # True if running inside a virtual environment
     return sys.prefix != sys.base_prefix
 
 def install_requirements():
     if not is_venv():
         print("⚠️  Warning: You are NOT in a virtual environment!")
         if is_termux():
-            print("💡 Run: 'source .venv/bin/activate' before running this script.")
+            print("💡 Run: 'source .venv/bin/activate' first.")
         else:
-            print("💡 Run: 'source .venv/Scripts/activate' (Windows) first.")
-        # We continue anyway, but it's best practice to be in venv
+            print("💡 Run: '.venv\\Scripts\\activate' (Windows) first.")
 
-    # The base list of Jutsu (packages)
+    # --- THE REMBG FIX ---
+    # We use 'rembg' instead of 'rembg[pillow]' to avoid the dependency hang.
     packages = [
         "python-dotenv", "telethon", "python-barcode", 
         "pillow", "googletrans==4.0.0-rc1", "legacy-cgi", 
-        "yt-dlp", "rembg[pillow]", "onnxruntime"
+        "yt-dlp", "rembg", "onnxruntime"
     ]
     
-    # --- TERMUX COMPATIBILITY SEAL ---
+    # psutil is a headache for Termux compilation
     if not is_termux():
         packages.append("psutil")
         print("🖥️  PC Detected: Adding psutil to the scroll...")
     else:
-        print("📱 Termux Detected: Skipping psutil and using binary-only for heavy scrolls.")
+        print("📱 Termux Detected: Skipping psutil and forcing binary installs.")
 
     print(f"🦊 Kurama is gathering dependencies into: {sys.prefix}")
     
     for package in packages:
         try:
-            # --- THE VENV FIX ---
-            # Using sys.executable ensures we use the Python inside the .venv
-            cmd = [sys.executable, "-m", "pip", "install", package, "--no-cache-dir"]
+            # sys.executable ensures we use the pip belonging to the active .venv
+            cmd = [sys.executable, "-m", "pip", "install", package]
             
-            # For Termux, we force binary to prevent hanging during compilation (especially for yt-dlp)
             if is_termux():
-                cmd.append("--prefer-binary")
+                # --prefer-binary: Fixes the 'yt-dlp' and 'rembg' stuck issue
+                # --no-cache-dir: Prevents corrupted downloads from previous hangs
+                cmd.extend(["--prefer-binary", "--no-cache-dir", "--quiet"])
+            else:
+                cmd.append("--quiet")
             
-            # Keeping the terminal clean
-            cmd.append("--quiet")
-            
+            print(f"🌀 Installing {package}...")
             subprocess.check_call(cmd)
             print(f"✅ Installed: {package}")
         except Exception as e:
             print(f"❌ Failed to install {package}: {e}")
 
-    # --- DOWNLOAD FONT FOR STICKERS ---
+    # --- FONT DOWNLOAD ---
     font_url = "https://github.com/matomo-org/travis-scripts/raw/master/fonts/Arial.ttf"
     font_path = "kurama_font.ttf"
     
     if not os.path.exists(font_path):
-        print("📜 Forging the Ink Brush (Downloading Font)...")
+        print("📜 Downloading Ink (Font)...")
         try:
             opener = urllib.request.build_opener()
             opener.addheaders = [('User-agent', 'Mozilla/5.0')]
             urllib.request.install_opener(opener)
             urllib.request.urlretrieve(font_url, font_path)
-            print("✅ Font 'kurama_font.ttf' is ready.")
+            print("✅ Font ready.")
         except Exception as e:
-            print(f"⚠️ Could not download font: {e}. Defaulting to basic ink.")
+            print(f"⚠️ Font error: {e}")
 
     print("\n🔥 All systems ready.")
-    if is_termux():
-        print("💡 Termux Tip: Ensure you ran 'pkg install ffmpeg nodejs' in the main terminal.")
 
 if __name__ == "__main__":
     try:
         install_requirements()
     except KeyboardInterrupt:
-        print("\n🦊 Installation interrupted.")
+        print("\n🦊 Installation stopped by the Master.")
