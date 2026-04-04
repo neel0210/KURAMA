@@ -1,72 +1,76 @@
-import subprocess
-import sys
 import os
-import urllib.request
+import requests
+import asyncio
+from telethon import events
+from dotenv import load_dotenv
 
-def run_cmd(cmd):
-    """Utility to run shell commands and catch errors."""
-    try:
-        subprocess.check_call(cmd, shell=isinstance(cmd, str))
-        return True
-    except Exception as e:
-        print(f"❌ Command failed: {e}")
-        return False
+# --- PATH CONFIGURATION ---
+# Using absolute paths ensures compatibility with Termux environments
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-def is_termux():
-    return "com.termux" in sys.executable or "TERMUX_VERSION" in os.environ
+API_KEY = os.getenv("REMOVE_BG_API_KEY")
 
-def setup_termux_environment():
-    """Installs the necessary system binaries for ARM64 Python wheels."""
-    print("🛠️ Preparing Termux environment for C++ compilation...")
-    # These are required to build psutil and Pillow from source on Android
-    termux_pkgs = [
-        "pkg", "upgrade", "-y", "&&", "pkg", "install", 
-        "python", "binutils", "build-essential", "clang", 
-        "libjpeg-turbo", "libpng", "libwebp", "libffi", "openssl", "-y"
-    ]
-    run_cmd(" ".join(termux_pkgs))
+def register(client):
+    @client.on(events.NewMessage(pattern=r"\.rbg"))
+    async def remove_background(event):
+        """
+        Eraser Style Jutsu: Removes image backgrounds via API to save Termux RAM.
+        """
+        if not API_KEY:
+            await event.edit("❌ **Error:** `REMOVE_BG_API_KEY` is missing from your `.env` file!")
+            return
 
-def install_requirements():
-    print(f"🦊 Environment: {'📱 Termux' if is_termux() else '🖥️ PC'}")
-    
-    if is_termux():
-        setup_termux_environment()
+        if not event.reply_to_msg_id:
+            await event.edit("🦊 **Usage:** Reply to a photo with `.rbg` to unseal it.")
+            return
 
-    # Core requirements list
-    packages = [
-        "python-dotenv", "telethon", "python-barcode", 
-        "pillow", "googletrans==4.0.0-rc1", "legacy-cgi", 
-        "yt-dlp", "rembg", "onnxruntime", "psutil"
-    ]
-
-    print(f"🌀 Gathering dependencies into: {sys.prefix}")
-    
-    for package in packages:
-        # --prefer-binary saves time; --no-build-isolation helps with termux env vars
-        pip_cmd = [sys.executable, "-m", "pip", "install", package, "--prefer-binary"]
-        if is_termux():
-            pip_cmd.append("--no-cache-dir")
+        reply_message = await event.get_reply_message()
         
-        print(f"📦 Installing {package}...")
-        run_cmd(pip_cmd)
+        # Validate that the replied message contains a photo or an image document
+        if not (reply_message.photo or (reply_message.document and "image" in reply_message.document.mime_type)):
+            await event.edit("❌ **Error:** This Jutsu only works on image scrolls!")
+            return
 
-    # --- FONT DOWNLOAD ---
-    font_path = os.path.join(os.path.dirname(__file__), "kurama_font.ttf")
-    if not os.path.exists(font_path):
-        print("📜 Downloading Ink (Font)...")
+        await event.edit("🌀 **Eraser Style: Gathering Chakra...**")
+        
+        # Download media to the local Termux storage
+        input_path = await reply_message.download_media()
+        output_path = "kurama_no_bg.png"
+
         try:
-            url = "https://github.com/matomo-org/travis-scripts/raw/master/fonts/Arial.ttf"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response, open(font_path, 'wb') as out_file:
-                out_file.write(response.read())
-            print("✅ Font ready.")
+            await event.edit("✨ **Eraser Style: Removing Background...**")
+            
+            # Use the API to offload heavy AI processing from the mobile CPU
+            response = requests.post(
+                'https://api.remove.bg/v1.0/removebg',
+                files={'image_file': open(input_path, 'rb')},
+                data={'size': 'auto'},
+                headers={'X-Api-Key': API_KEY},
+            )
+
+            if response.status_code == requests.codes.ok:
+                with open(output_path, 'wb') as out:
+                    out.write(response.content)
+                
+                # Send the processed image back to the chat
+                await client.send_file(
+                    event.chat_id, 
+                    output_path, 
+                    caption="🔥 **Jutsu Complete: Background Erased!**",
+                    reply_to=reply_message.id
+                )
+                await event.delete()
+            else:
+                error_msg = response.json().get('errors', [{}])[0].get('title', 'Unknown Error')
+                await event.edit(f"❌ **Sealing Error:** {error_msg}")
+
         except Exception as e:
-            print(f"⚠️ Font error: {e}")
-
-    print("\n🔥 All systems unsealed and ready.")
-
-if __name__ == "__main__":
-    try:
-        install_requirements()
-    except KeyboardInterrupt:
-        print("\n🦊 Installation stopped.")
+            await event.edit(f"❌ **System Failure:** {str(e)}")
+        
+        finally:
+            # Clean up files immediately to keep the device storage clean
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)

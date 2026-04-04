@@ -1,48 +1,65 @@
-import io
-import asyncio
-from PIL import Image
-from rembg import remove
+import os
+import requests
 from telethon import events
-from .logging import report_error
+from dotenv import load_dotenv
+
+# Absolute pathing for Termux stability
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+API_KEY = os.getenv("REMOVE_BG_API_KEY")
 
 def register(client):
-    @client.on(events.NewMessage(pattern=r'\.rbg', outgoing=True))
-    async def remove_bg_jutsu(event):
-        if not event.is_reply:
-            return await event.edit("`Reply to an image to erase its background, brat!`")
-        
-        reply = await event.get_reply_message()
-        if not reply.media:
-            return await event.edit("`No visual chakra detected.`")
+    @client.on(events.NewMessage(pattern=r"\.rbg"))
+    async def remove_bg(event):
+        if not API_KEY:
+            await event.edit("❌ **Error:** `REMOVE_BG_API_KEY` missing in `.env`!")
+            return
 
-        await event.edit("`Erase Style: Dust Release Jutsu...` 💨")
+        if not event.reply_to_msg_id:
+            await event.edit("🦊 **Usage:** Reply to a photo with `.rbg`")
+            return
+
+        reply_message = await event.get_reply_message()
+        if not reply_message.photo and not reply_message.document:
+            await event.edit("❌ **Error:** Please reply to an image.")
+            return
+
+        await event.edit("🌀 **Extracting Background...**")
         
+        # Download the image to a temporary path in Termux
+        input_path = await reply_message.download_media()
+        output_path = "kurama_no_bg.png"
+
         try:
-            # 1. Download image
-            photo_bytes = await reply.download_media(file=bytes)
-            
-            # 2. Process in a separate thread (it's heavy)
-            def process():
-                input_img = Image.open(io.BytesIO(photo_bytes))
-                output_img = remove(input_img)
-                out = io.BytesIO()
-                output_img.save(out, format="PNG")
-                out.seek(0)
-                out.name = "kurama_no_bg.png"
-                return out
-
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, process)
-            
-            # 3. Send back
-            await client.send_file(
-                event.chat_id,
-                result,
-                force_document=True, # Sends as file to keep transparency
-                reply_to=reply.id
+            # Offload the heavy AI work to the API
+            response = requests.post(
+                'https://api.remove.bg/v1.0/removebg',
+                files={'image_file': open(input_path, 'rb')},
+                data={'size': 'auto'},
+                headers={'X-Api-Key': API_KEY},
             )
-            await event.delete()
+
+            if response.status_code == requests.codes.ok:
+                with open(output_path, 'wb') as out:
+                    out.write(response.content)
+                
+                await client.send_file(
+                    event.chat_id, 
+                    output_path, 
+                    caption="✨ **Eraser Style: Jutsu Complete!**",
+                    reply_to=reply_message.id
+                )
+                await event.delete()
+            else:
+                await event.edit(f"❌ **API Error:** {response.json().get('errors')[0].get('title')}")
 
         except Exception as e:
-            await report_error(client, "BG Remove")
-            await event.edit(f"`The Eraser Seal failed: {str(e)[:40]}`")
+            await event.edit(f"❌ **Failed:** {str(e)}")
+        
+        finally:
+            # Clean up files to save storage on the device
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)
