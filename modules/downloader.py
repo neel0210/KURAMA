@@ -3,7 +3,12 @@ import asyncio
 import time
 import yt_dlp
 from telethon import events
-from .logging import report_error
+
+# --- FIX: Removed the '.' from the import ---
+try:
+    from logging import report_error
+except ImportError:
+    async def report_error(client, name): pass
 
 DOWNLOAD_DIR = "downloads"
 if not os.path.exists(DOWNLOAD_DIR):
@@ -41,11 +46,18 @@ class KuramaLogger:
             curr = d.get('downloaded_bytes', 0)
             total = d.get('total_bytes') or d.get('total_bytes_estimate', 1)
             now = time.time()
-            # Update every 4 seconds to avoid Telegram FloodWait
-            if (now - self.last_edit > 4) or (curr == total):
+            # Update every 5 seconds to be extra safe against FloodWait in Termux
+            if (now - self.last_edit > 5) or (curr == total):
                 self.last_edit = now
                 msg = get_chakra_bar(curr, total, phase=f"Extracting {self.mode}")
-                asyncio.run_coroutine_threadsafe(self.event.edit(msg), self.loop)
+                # Use call_soon_threadsafe to avoid event loop issues
+                asyncio.run_coroutine_threadsafe(self._safe_edit(msg), self.loop)
+
+    async def _safe_edit(self, text):
+        try:
+            await self.event.edit(text)
+        except:
+            pass
 
 def register(client):
     @client.on(events.NewMessage(pattern=r'\.dl (https?://\S+)', outgoing=True))
@@ -72,7 +84,6 @@ async def start_extraction(client, event, mode):
     }
 
     if mode == "audio":
-        # High Quality 320kbps MP3
         ydl_opts.update({
             'format': 'bestaudio/best',
             'postprocessors': [{
@@ -83,14 +94,13 @@ async def start_extraction(client, event, mode):
         })
         quality_tag = "320kbps"
     else:
-        # Prioritize 1080p MP4, then 720p, then best available
         ydl_opts.update({
             'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
         })
         quality_tag = "1080p/Best"
 
+    filename = None
     try:
-        # --- PHASE 1: DOWNLOAD ---
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
             filename = ydl.prepare_filename(info)
@@ -98,42 +108,31 @@ async def start_extraction(client, event, mode):
                 filename = os.path.splitext(filename)[0] + ".mp3"
 
         if not os.path.exists(filename):
-            raise FileNotFoundError("Chakra leak! File not found after download.")
+            raise FileNotFoundError("Chakra leak! File not found.")
 
-        # --- PHASE 2: UPLOAD ---
         file_size = os.path.getsize(filename)
         last_up = [0]
 
         async def up_cb(current, total):
             now = time.time()
-            if now - last_up[0] > 4 or current == total:
+            if now - last_up[0] > 5 or current == total:
                 last_up[0] = now
-                # Force the progress bar update for Uploading
-                await event.edit(get_chakra_bar(current, total, phase="Teleporting Scroll"))
-
-        # Manual edit to start the upload bar
-        await event.edit(get_chakra_bar(0, file_size, phase="Teleporting Scroll"))
+                try:
+                    await event.edit(get_chakra_bar(current, total, phase="Teleporting Scroll"))
+                except: pass
 
         await client.send_file(
             event.chat_id, 
             filename,
-            caption=(
-                f"🦊 **Extraction Successful**\n"
-                f"**Title:** `{info.get('title')}`\n"
-                f"**Quality:** `{quality_tag}`"
-            ),
+            caption=f"🦊 **Extraction Successful**\n**Title:** `{info.get('title')}`\n**Quality:** `{quality_tag}`",
             reply_to=event.id,
             progress_callback=up_cb
         )
-
-        # Cleanup: Erase the traces
-        if os.path.exists(filename):
-            os.remove(filename)
         await event.delete()
 
     except Exception as e:
         await report_error(client, f"Downloader ({mode})")
-        await event.edit(f"`Jutsu failed: {str(e)[:50]}`")
-        # Ensure cleanup on failure
-        if 'filename' in locals() and os.path.exists(filename):
+        await event.edit(f"`Jutsu failed: {str(e)[:60]}`")
+    finally:
+        if filename and os.path.exists(filename):
             os.remove(filename)

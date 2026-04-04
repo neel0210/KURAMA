@@ -1,0 +1,18 @@
+# Core & System
+telethon
+python-dotenv
+aiohttp
+requests
+
+# Multimedia & Imaging (For stickers, quote, and rbg)
+Pillow
+python-barcode
+
+# Tools & Utilities
+yt-dlp
+googletrans==3.1.0a0
+six
+retrying
+
+# Web/CGI Compatibility
+legacy-cgi
