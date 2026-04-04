@@ -3,75 +3,70 @@ import sys
 import os
 import urllib.request
 
+def run_cmd(cmd):
+    """Utility to run shell commands and catch errors."""
+    try:
+        subprocess.check_call(cmd, shell=isinstance(cmd, str))
+        return True
+    except Exception as e:
+        print(f"❌ Command failed: {e}")
+        return False
+
 def is_termux():
     return "com.termux" in sys.executable or "TERMUX_VERSION" in os.environ
 
-def is_venv():
-    # True if running inside a virtual environment
-    return sys.prefix != sys.base_prefix
+def setup_termux_environment():
+    """Installs the necessary system binaries for ARM64 Python wheels."""
+    print("🛠️ Preparing Termux environment for C++ compilation...")
+    # These are required to build psutil and Pillow from source on Android
+    termux_pkgs = [
+        "pkg", "upgrade", "-y", "&&", "pkg", "install", 
+        "python", "binutils", "build-essential", "clang", 
+        "libjpeg-turbo", "libpng", "libwebp", "libffi", "openssl", "-y"
+    ]
+    run_cmd(" ".join(termux_pkgs))
 
 def install_requirements():
-    if not is_venv():
-        print("⚠️  Warning: You are NOT in a virtual environment!")
-        if is_termux():
-            print("💡 Run: 'source .venv/bin/activate' first.")
-        else:
-            print("💡 Run: '.venv\\Scripts\\activate' (Windows) first.")
+    print(f"🦊 Environment: {'📱 Termux' if is_termux() else '🖥️ PC'}")
+    
+    if is_termux():
+        setup_termux_environment()
 
-    # --- THE REMBG FIX ---
-    # We use 'rembg' instead of 'rembg[pillow]' to avoid the dependency hang.
+    # Core requirements list
     packages = [
         "python-dotenv", "telethon", "python-barcode", 
         "pillow", "googletrans==4.0.0-rc1", "legacy-cgi", 
-        "yt-dlp", "rembg", "onnxruntime"
+        "yt-dlp", "rembg", "onnxruntime", "psutil"
     ]
-    
-    # psutil is a headache for Termux compilation
-    if not is_termux():
-        packages.append("psutil")
-        print("🖥️  PC Detected: Adding psutil to the scroll...")
-    else:
-        print("📱 Termux Detected: Skipping psutil and forcing binary installs.")
 
-    print(f"🦊 Kurama is gathering dependencies into: {sys.prefix}")
+    print(f"🌀 Gathering dependencies into: {sys.prefix}")
     
     for package in packages:
-        try:
-            # sys.executable ensures we use the pip belonging to the active .venv
-            cmd = [sys.executable, "-m", "pip", "install", package]
-            
-            if is_termux():
-                # --prefer-binary: Fixes the 'yt-dlp' and 'rembg' stuck issue
-                # --no-cache-dir: Prevents corrupted downloads from previous hangs
-                cmd.extend(["--prefer-binary", "--no-cache-dir", "--quiet"])
-            else:
-                cmd.append("--quiet")
-            
-            print(f"🌀 Installing {package}...")
-            subprocess.check_call(cmd)
-            print(f"✅ Installed: {package}")
-        except Exception as e:
-            print(f"❌ Failed to install {package}: {e}")
+        # --prefer-binary saves time; --no-build-isolation helps with termux env vars
+        pip_cmd = [sys.executable, "-m", "pip", "install", package, "--prefer-binary"]
+        if is_termux():
+            pip_cmd.append("--no-cache-dir")
+        
+        print(f"📦 Installing {package}...")
+        run_cmd(pip_cmd)
 
     # --- FONT DOWNLOAD ---
-    font_url = "https://github.com/matomo-org/travis-scripts/raw/master/fonts/Arial.ttf"
-    font_path = "kurama_font.ttf"
-    
+    font_path = os.path.join(os.path.dirname(__file__), "kurama_font.ttf")
     if not os.path.exists(font_path):
         print("📜 Downloading Ink (Font)...")
         try:
-            opener = urllib.request.build_opener()
-            opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-            urllib.request.install_opener(opener)
-            urllib.request.urlretrieve(font_url, font_path)
+            url = "https://github.com/matomo-org/travis-scripts/raw/master/fonts/Arial.ttf"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(font_path, 'wb') as out_file:
+                out_file.write(response.read())
             print("✅ Font ready.")
         except Exception as e:
             print(f"⚠️ Font error: {e}")
 
-    print("\n🔥 All systems ready.")
+    print("\n🔥 All systems unsealed and ready.")
 
 if __name__ == "__main__":
     try:
         install_requirements()
     except KeyboardInterrupt:
-        print("\n🦊 Installation stopped by the Master.")
+        print("\n🦊 Installation stopped.")

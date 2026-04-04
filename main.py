@@ -3,10 +3,21 @@ import os
 import glob
 import importlib
 import asyncio
+from telethon import TelegramClient
+from dotenv import load_dotenv
+
+# --- ABSOLUTE PATHING ---
+# Ensures the bot finds its scrolls even if launched via symlink or Tasker
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODULES_PATH = os.path.join(BASE_DIR, "modules")
+
+# --- TERMUX WAKE-LOCK ---
+def ensure_wakelock():
+    if "com.termux" in sys.executable:
+        print("📱 Termux detected. Requesting Chakra stability (Wake Lock)...")
+        os.system("termux-wake-lock")
 
 # --- PYTHON 3.14 COMPATIBILITY PATCH ---
-# Modern Python (3.13+) removed the 'cgi' module. 
-# This shim ensures older libraries like googletrans still work.
 try:
     import cgi
 except ImportError:
@@ -14,80 +25,60 @@ except ImportError:
         import legacy_cgi as cgi
         sys.modules['cgi'] = cgi
     except ImportError:
-        # If legacy-cgi isn't installed, run: pip install legacy-cgi
         pass
 
-from telethon import TelegramClient
-from dotenv import load_dotenv
-
 # --- LOAD ENVIRONMENT ---
-load_dotenv()
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 
-# Safety check for credentials
 if not API_ID or not API_HASH:
-    print("❌ Error: API_ID or API_HASH not found in .env file!")
+    print("❌ Error: API_ID or API_HASH missing from .env!")
     sys.exit(1)
 
-# Ensure API_ID is a clean integer
-try:
-    API_ID = int(API_ID.strip())
-except ValueError:
-    print("❌ Error: API_ID must be a number!")
-    sys.exit(1)
-
-client = TelegramClient('kurama_session', API_ID, API_HASH)
+# Persistent session file in the base directory
+SESSION_PATH = os.path.join(BASE_DIR, 'kurama_session')
+client = TelegramClient(SESSION_PATH, int(API_ID), API_HASH)
 
 def load_modules():
     """
-    Dynamically loads all Python files in the /modules folder.
+    Dynamically loads all Jutsu from the modules folder using absolute paths.
     """
-    # Look for .py files inside the 'modules' directory
-    path = os.path.join("modules", "*.py")
-    files = glob.glob(path)
+    search_path = os.path.join(MODULES_PATH, "*.py")
+    files = glob.glob(search_path)
     
     for name in files:
-        # Cross-platform way to get module name (modules.filename)
-        # Removes the .py extension and converts path separators to dots
-        module_path = name.replace(".py", "").replace(os.sep, ".")
-        
-        # Skip __init__ files
-        if "__init__" in module_path:
+        module_name = os.path.basename(name).replace(".py", "")
+        if module_name.startswith("__"):
             continue
             
         try:
-            # Import the module
-            module = importlib.import_module(module_path)
+            # Create a spec and load it directly to avoid sys.path issues
+            spec = importlib.util.spec_from_file_location(module_name, name)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             
-            # Check for the 'register' function defined in our Jutsu modules
             if hasattr(module, "register"):
                 module.register(client)
-                # Success message using just the filename (e.g., 'status')
-                print(f"✅ Loaded Jutsu: {module_path.split('.')[-1]}")
+                print(f"✅ Loaded Jutsu: {module_name}")
         except Exception as e:
-            print(f"❌ Failed to load {module_path}: {e}")
+            print(f"❌ Failed to load {module_name}: {e}")
 
 async def main():
     print("🦊 Kurama's chakra is gathering...")
+    ensure_wakelock()
     
-    # Start the client (Will ask for phone/code if kurama_session.session is missing)
     await client.start()
-    
-    # Load all the modules from the folder
     load_modules()
     
-    # Get bot info to confirm login
     me = await client.get_me()
     print(f"🔥 Kurama is fully awake as: {me.first_name}")
-    print("✨ Bot is active. Type .status in any chat to test.")
+    print("✨ Bot is active. Termux is locked to prevent sleep.")
     
-    # Keep the bot running
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
     try:
-        # Modern Python 3.11+ way to run the loop
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n🦊 Kurama is returning to the seal... (Stopped)")
+        print("\n🦊 Kurama is returning to the seal...")
